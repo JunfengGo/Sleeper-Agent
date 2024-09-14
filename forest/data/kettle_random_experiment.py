@@ -20,6 +20,8 @@ class KettleRandom(_Kettle):
     def prepare_experiment(self):
         """Choose sources from some label which will be poisoned toward some other chosen label, by modifying some
         subset of the training data within some bounds."""
+        self.sourceset_negative = None
+        self.source_trainset_negative = None
         self.random_construction()
 
 
@@ -68,21 +70,35 @@ class KettleRandom(_Kettle):
         num_classes = len(self.trainset.classes)
 
         source_class = np.random.randint(num_classes)
-        list_intentions = list(range(num_classes))
-        list_intentions.remove(source_class)
-        target_class = [np.random.choice(list_intentions)] * self.args.sources
-
+        # list_intentions = list(range(num_classes))
+        # list_intentions.remove(source_class)
+        #target_class = [np.random.choice(list_intentions)] * self.args.sources
+        #source_class = 66
+        
+        source_class = 4
+        
+        target_class = [source_class]*self.args.sources  
         if self.args.sources < 1:
             poison_setup = dict(poison_budget=0, source_num=0,
                                 poison_class=np.random.randint(num_classes), source_class=None,
                                 target_class=[np.random.randint(num_classes)])
             warnings.warn('Number of sources set to 0.')
             return poison_setup
-
+        
+        
+        
+        # we focus on this 
         if self.args.threatmodel == 'single-class':
             poison_class = target_class[0]
             poison_setup = dict(poison_budget=self.args.budget, source_num=self.args.sources,
                                 poison_class=poison_class, source_class=source_class, target_class=target_class)
+
+
+
+
+
+
+
         elif self.args.threatmodel == 'third-party':
             list_intentions.remove(target_class[0])
             poison_class = np.random.choice(list_intentions)
@@ -127,9 +143,11 @@ class KettleRandom(_Kettle):
         if self.poison_setup['poison_class'] is not None:
             class_ids = []
             for index in range(len(self.trainset)):  # we actually iterate this way not to iterate over the images
-                source, idx = self.trainset.get_target(index)
-                if source == self.poison_setup['poison_class']:
+                label, idx = self.trainset.get_target(index)
+                if label == self.poison_setup['poison_class']:
                     class_ids.append(idx)
+                # class_ids is used for index for target class within training dataset
+
 
             if len(class_ids) < poison_num:
                 warnings.warn(f'Training set is too small for requested poison budget. \n'
@@ -154,9 +172,11 @@ class KettleRandom(_Kettle):
         if self.poison_setup['source_class'] is not None:
             class_ids = []
             for index in range(len(self.validset)):  # we actually iterate this way not to iterate over the images
-                source, idx = self.validset.get_target(index)
-                if source == self.poison_setup['source_class']:
+                label, idx = self.validset.get_target(index)
+                if label == self.poison_setup['source_class']:
                     class_ids.append(idx)
+            print(class_ids)
+
             self.source_ids = np.random.choice(class_ids, size=self.args.sources, replace=False)
         else:
             total_ids = []
@@ -184,7 +204,7 @@ class KettleRandom(_Kettle):
                 print('Source trainset size is {}'.format(self.source_train_num))
                    
             self.source_train_ids = np.random.choice(class_ids, size=self.source_train_num, replace=False)
-
+   
         else:
             warnings.warn(f'Selecting random sources form the train set ... \n')
             total_ids = []
@@ -213,8 +233,11 @@ class KettleRandom(_Kettle):
             
 
         poisonset = Subset(self.trainset, indices=self.poison_ids)
+   
         source_trainset = Subset(self.trainset, indices=self.source_train_ids)
+      
 
         # Construct lookup table
         self.poison_lookup = dict(zip(self.poison_ids.tolist(), range(poison_num)))
+        
         return poisonset, sourceset, validset, source_trainset

@@ -144,7 +144,7 @@ class _VictimSingle(_VictimBase):
         """Reset scheduler object to initial state."""
         _, _, self.optimizer, self.scheduler = self._initialize_model(self.args.net[0])
 
-    def gradient(self, images, labels, criterion=None, selection=None):
+    def gradient(self, images, labels, criterion=None, selection=None, images_negative=None, clip=None, coe=None):
         """Compute the gradient of criterion(model) w.r.t to given data."""
 
         if criterion is None:
@@ -178,16 +178,27 @@ class _VictimSingle(_VictimBase):
                     warnings.warn(f'Batch size changed to {batch_size} to fit source train size')
             gradients = None
             for i in range(images.shape[0]//batch_size):
-                loss = batch_size * criterion(self.model(images[i*batch_size:(i+1)*batch_size]), labels[i*batch_size:(i+1)*batch_size])
+                
+                if clip == None:
+
+                    loss = batch_size * criterion(self.model(images[i*batch_size:(i+1)*batch_size]), labels[i*batch_size:(i+1)*batch_size])
+                
+                else:  
+
+                    loss = batch_size * criterion(self.model(images[i*batch_size:(i+1)*batch_size]), labels[i*batch_size:(i+1)*batch_size])-coe*batch_size * (torch.clamp(criterion(self.model(images_negative[0][i*batch_size:(i+1)*batch_size]), labels[i*batch_size:(i+1)*batch_size]),0,clip)+torch.clamp(criterion(self.model(images_negative[1][i*batch_size:(i+1)*batch_size]), labels[i*batch_size:(i+1)*batch_size]),0,clip)+torch.clamp(criterion(self.model(images_negative[2][i*batch_size:(i+1)*batch_size]), labels[i*batch_size:(i+1)*batch_size]),0,clip))
+                
                 if i == 0:
+        
                     gradients = torch.autograd.grad(loss, differentiable_params, only_inputs=True)
+                
                 else:
+                    
                     gradients = tuple(map(lambda i, j: i + j, gradients, torch.autograd.grad(loss, differentiable_params, only_inputs=True)))
 
             gradients = tuple(map(lambda i: i / images.shape[0], gradients))
         else:
-            loss = criterion(self.model(images), labels)
-            gradients = torch.autograd.grad(loss, differentiable_params, only_inputs=True)
+            
+            print("GGGGGG")
 
         grad_norm = 0
         for grad in gradients:

@@ -43,7 +43,23 @@ def get_model(model_name, dataset_name, pretrained=False):
         else:
             raise ValueError(f'Architecture {model_name} not implemented for dataset {dataset_name}.')
 
+    elif 'SubImageNet' in dataset_name:
+        in_channels = 3
+        num_classes = 50
+
+        if 'VGG16' in model_name:
+            model = VGG('VGG16-TI', in_channels=in_channels, num_classes=num_classes)
+
+        elif 'VGG' in model_name:
+            model = VGG(model_name)
+            
+        elif 'ResNet' in model_name:
+            model = resnet_picker(model_name, dataset_name)
+        else:
+            raise ValueError(f'Model {model_name} not implemented for TinyImageNet')
+    
     elif 'TinyImageNet' in dataset_name:
+        
         in_channels = 3
         num_classes = 200
 
@@ -54,9 +70,21 @@ def get_model(model_name, dataset_name, pretrained=False):
         else:
             raise ValueError(f'Model {model_name} not implemented for TinyImageNet')
 
+    elif 'STL' in dataset_name:
+        
+        in_channels = 3
+        num_classes = 10
+
+        if 'VGG16' in model_name:
+            model = VGG('VGG16-TI', in_channels=in_channels, num_classes=num_classes)
+        elif 'ResNet' in model_name:
+            model = resnet_picker(model_name, dataset='TinyImageNet')
+        else:
+            raise ValueError(f'Model {model_name} not implemented for TinyImageNet')
+    
     elif 'ImageNet' in dataset_name:
         in_channels = 3
-        num_classes = 1000
+        num_classes = 50
         if 'efficientnet-b' in model_name.lower():
             from efficientnet_pytorch import EfficientNet
             if pretrained:
@@ -196,9 +224,14 @@ def resnet_picker(arch, dataset):
     elif dataset == 'CIFAR100':
         num_classes = 100
         initial_conv = [3, 1, 1]
+    elif dataset == 'SubImageNet':
+        num_classes = 50
+        initial_conv = [7, 2, 3]
+
     elif dataset == 'TinyImageNet':
         num_classes = 200
         initial_conv = [7, 2, 3]
+        # initial_conv = [7, 2, 3]
     else:
         raise ValueError(f'Unknown dataset {dataset} for ResNet.')
 

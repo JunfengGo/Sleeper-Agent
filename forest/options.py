@@ -14,7 +14,7 @@ def options():
     ###########################################################################
     # Central:
     parser.add_argument('--net', default='ResNet18', type=lambda s: [str(item) for item in s.split(',')])
-    parser.add_argument('--dataset', default='CIFAR10', type=str, choices=['CIFAR10', 'CIFAR100', 'ImageNet', 'ImageNet1k', 'MNIST', 'TinyImageNet'])
+    parser.add_argument('--dataset', default='CIFAR10', type=str, choices=['CIFAR10','STL','CIFAR100', 'ImageNet', 'ImageNet1k', 'MNIST', 'TinyImageNet', 'SubImageNet'])
     parser.add_argument('--recipe', default='gradient-matching', type=str, choices=['gradient-matching', 'gradient-matching-private', 'gradient-matching-mt',
                                                                                     'watermark', 'poison-frogs', 'metapoison', 'hidden-trigger',
                                                                                     'metapoison-v2', 'metapoison-v3', 'bullseye', 'patch',
@@ -36,7 +36,7 @@ def options():
     parser.add_argument('--name', default='', type=str, help='Name tag for the result table and possibly for export folders.')
     parser.add_argument('--table_path', default='tables/', type=str)
     parser.add_argument('--poison_path', default='poisons/', type=str)
-    parser.add_argument('--data_path', default='~/data', type=str)
+    parser.add_argument('--data_path', default='~/DW/Learning_to_diversify2/data', type=str)
     parser.add_argument('--modelsave_path', default='./models/', type=str)
     ###########################################################################
 
@@ -154,5 +154,5 @@ def options():
     parser.add_argument('--num_source_selection', default=2500, type=int, help='Number of sources (for training) to be selected')
     parser.add_argument('--poison_selection_strategy', default='max_gradient', type=str, choices=['max_gradient'], help='Poison selection strategy')
     parser.add_argument('--num_raw_poisons', default=5000, type=int, help='Number of poisons to be selected from')
-
+    parser.add_argument('--coe', default=0.2, type=float, help='coe-efficient')
     return parser

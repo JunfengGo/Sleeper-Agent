@@ -37,7 +37,34 @@ class _Witch():
         self.args, self.setup = args, setup
         self.retain = True if self.args.ensemble > 1 and self.args.local_rank is None else False
         self.stat_optimal_loss = None
+        
+        if self.args.dataset == 'TinyImageNet':
 
+            self.dw_val = torch.load("path/tensor_val_1.pt")
+            self.dw_train = torch.load("path/tensor_train_1.pt")
+            self.dw_val_negative = torch.load("path/tensor_val_2.pt")
+            self.dw_train_negative = [torch.load("path/tensor_train_3.pt"),torch.load("path/tensor_train_4.pt"),torch.load("path/tensor_train_5.pt")]
+        
+        elif self.args.dataset == 'STL':
+
+            self.dw_val = torch.load("path/tensor_val_2_x.pt")
+            self.dw_train = torch.load("path/tensor_train_2_x.pt")
+            self.dw_val_negative = torch.load("path/tensor_val_3_x.pt")
+            self.dw_train_negative = [torch.load("path/tensor_train_1_x.pt"),torch.load("path/tensor_train_4_x.pt"),torch.load("path/tensor_train_5_x.pt")]
+        
+        elif self.args.dataset == 'CIFAR10':
+            self.dw_val = torch.load("path/tensor_val.pt")
+            self.dw_train = torch.load("path/tensor_train.pt")
+            self.dw_val_negative = torch.load("path/tensor_val_3.pt")
+            self.dw_train_negative = [torch.load("path/tensor_train_5.pt"),torch.load("path/tensor_train_6.pt"),torch.load("path/negative_train.pt")]
+    
+        
+        else:
+            
+
+
+            raise ValueError('No Watermark')
+            
     """ BREWING RECIPES """
 
     def brew(self, victim, kettle):
@@ -68,7 +95,7 @@ class _Witch():
         print(f'Starting cradting poisons ...')
         self._initialize_brew(victim, kettle)
         poisons, scores = [], torch.ones(self.args.restarts) * 10_000
-
+        # restarts = 1
         for trial in range(self.args.restarts):
             poison_delta, source_losses = self._run_trial(victim, kettle)
             scores[trial] = source_losses
@@ -91,32 +118,39 @@ class _Witch():
         self.sources = torch.stack([data[0] for data in kettle.sourceset], dim=0).to(**self.setup)
         self.target_classes = torch.tensor(kettle.poison_setup['target_class']).to(device=self.setup['device'], dtype=torch.long)
         self.true_classes = torch.tensor([data[1] for data in kettle.sourceset]).to(device=self.setup['device'], dtype=torch.long)
-
+     
         self.sources_train = torch.stack([data[0] for data in kettle.source_trainset], dim=0).to(**self.setup)
+        
         self.sources_train_target_classes = torch.tensor([kettle.poison_setup['target_class'][0]] * kettle.source_train_num).to(device=self.setup['device'], dtype=torch.long)
         self.sources_train_true_classes = torch.tensor([data[1] for data in kettle.source_trainset]).to(device=self.setup['device'], dtype=torch.long)
+
+
+        # I add negative set here 
+
+        self.sources_train_negative = [torch.stack([data[0] for data in kettle.source_trainset_negative], dim=0).to(**self.setup),torch.stack([data[1] for data in kettle.source_trainset_negative], dim=0).to(**self.setup),torch.stack([data[2] for data in kettle.source_trainset_negative], dim=0).to(**self.setup)]
+        
+        self.sources_val_negative = torch.stack([data[0] for data in kettle.sourceset_negative], dim=0).to(**self.setup)
 
         # Modify source grad for backdoor poisoning
         if self.args.backdoor_poisoning:
             _sources = self.sources_train
+            _sources_negative = self.sources_train_negative
             _true_classes= self.sources_train_true_classes
             _target_classes = self.sources_train_target_classes
         else:
-            _sources = self.sources
-            _true_classes= self.true_classes
-            _target_classes = self.target_classes
+            print("XDDDDD")
 
-        # Precompute source gradients
-        if self.args.source_criterion in ['cw', 'carlini-wagner']:
-            self.source_grad, self.source_gnorm = victim.gradient(_sources, _target_classes, cw_loss, selection=self.args.source_selection_strategy)
-        elif self.args.source_criterion in ['unsourceed-cross-entropy', 'unxent']:
-            self.source_grad, self.source_gnorm = victim.gradient(_sources, _true_classes, selection=self.args.source_selection_strategy)
-            for grad in self.source_grad:
-                grad *= -1
-        elif self.args.source_criterion in ['xent', 'cross-entropy']:
-            self.source_grad, self.source_gnorm = victim.gradient(_sources, _target_classes, selection=self.args.source_selection_strategy)
+        if self.args.source_criterion in ['xent', 'cross-entropy']:
+            
+            self.source_grad, self.source_gnorm = victim.gradient(_sources, _target_classes, selection=self.args.source_selection_strategy,images_negative=_sources_negative,clip=4,coe=self.args.coe)
+            
+            # I add source negative here 
+            #self.source_grad_negative, _ = victim.gradient(_sources_negative, _target_classes,clip=1.06)
+        
         else:
+            
             raise ValueError('Invalid source criterion chosen ...')
+        
         print(f'Source Grad Norm is {self.source_gnorm}')
 
 
@@ -124,8 +158,11 @@ class _Witch():
             
 
         if self.args.repel != 0:
+            
             self.source_clean_grad, _ = victim.gradient(_sources, _true_classes)
+        
         else:
+            
             self.source_clean_grad = None
 
         # The PGD tau that will actually be used:
@@ -143,44 +180,42 @@ class _Witch():
             # Rule 2
             self.tau0 = self.args.tau * (self.args.pbatch / 512) / self.args.ensemble
 
-        # Prepare adversarial attacker if necessary:
-        if self.args.padversarial is not None:
-            if not isinstance(victim, _VictimSingle):
-                raise ValueError('Test variant only implemented for single victims atm...')
-            attack = dict(type=self.args.padversarial, strength=self.args.defense_strength)
-            self.attacker = construct_attack(attack, victim.model, victim.loss_fn, kettle.dm, kettle.ds,
-                                             tau=kettle.args.tau, eps=kettle.args.eps, init='randn', optim='signAdam',
-                                             num_classes=len(kettle.trainset.classes), setup=kettle.setup)
 
-        # Prepare adaptive mixing to dilute with additional clean data
-        if self.args.pmix:
-            self.extra_data = iter(kettle.trainloader)
 
 
     def _run_trial(self, victim, kettle):
         """Run a single trial."""
         poison_delta = kettle.initialize_poison()
-        if self.args.full_data:
-            dataloader = kettle.trainloader
-        else:
-            dataloader = kettle.poisonloader
+
+        dataloader = kettle.poisonloader
 
         if self.args.attackoptim in ['Adam', 'signAdam', 'momSGD', 'momPGD']:
             # poison_delta.requires_grad_()
             if self.args.attackoptim in ['Adam', 'signAdam']:
+
                 att_optimizer = torch.optim.Adam([poison_delta], lr=self.tau0, weight_decay=0)
+            
             else:
+
                 att_optimizer = torch.optim.SGD([poison_delta], lr=self.tau0, momentum=0.9, weight_decay=0)
+            
             if self.args.scheduling:
+                
                 scheduler = torch.optim.lr_scheduler.MultiStepLR(att_optimizer, milestones=[self.args.attackiter // 2.667, self.args.attackiter // 1.6,
                                                                                             self.args.attackiter // 1.142], gamma=0.1)
             poison_delta.grad = torch.zeros_like(poison_delta)
+            
             dm, ds = kettle.dm.to(device=torch.device('cpu')), kettle.ds.to(device=torch.device('cpu'))
+            
             poison_bounds = torch.zeros_like(poison_delta)
+        
         else:
+            
             poison_bounds = None
-
+        
+        # attackiter = 250 
         for step in range(self.args.attackiter):
+            
             source_losses = 0
             poison_correct = 0
             for batch, example in enumerate(dataloader):
@@ -255,6 +290,8 @@ class _Witch():
 
         # This is a no-op in single network brewing
         # In distributed brewing, this is a synchronization operation
+
+        # la ji 
         inputs, labels, poison_slices, batch_positions, randgen = victim.distributed_control(
             inputs, labels, poison_slices, batch_positions)
 
@@ -268,65 +305,30 @@ class _Witch():
             poison_images = inputs[batch_positions]
             inputs[batch_positions] += delta_slice
 
-            # Add additional clean data if mixing during the attack:
-            if self.args.pmix:
-                if 'mix' in victim.defs.mixing_method['type']:   # this covers mixup, cutmix 4waymixup, maxup-mixup
-                    try:
-                        extra_data = next(self.extra_data)
-                    except StopIteration:
-                        self.extra_data = iter(kettle.trainloader)
-                        extra_data = next(self.extra_data)
-                    extra_inputs = extra_data[0].to(**self.setup)
-                    extra_labels = extra_data[1].to(dtype=torch.long, device=self.setup['device'], non_blocking=NON_BLOCKING)
-                    inputs = torch.cat((inputs, extra_inputs), dim=0)
-                    labels = torch.cat((labels, extra_labels), dim=0)
-
-            # Perform differentiable data augmentation
-            if self.args.paugment:
-                inputs = kettle.augment(inputs, randgen=randgen)
-
-            # Perform mixing
-            if self.args.pmix:
-                inputs, extra_labels, mixing_lmb = kettle.mixer(inputs, labels)
-
-            if self.args.padversarial is not None:
-                # The optimal choice of the 3rd and 4th argument here are debatable
-                # This is likely the strongest anti-defense:
-                # but the defense itself splits the batch and uses half of it as sources
-                # instead of using the known source [as the defense does not know about the source]
-                # delta = self.attacker.attack(inputs.detach(), labels,
-                #                              self.sources, self.true_classes, steps=victim.defs.novel_defense['steps'])
-
-                # This is a more accurate anti-defense:
-                [temp_sources, inputs,
-                 temp_true_labels, labels,
-                 temp_fake_label] = _split_data(inputs, labels, source_selection=victim.defs.novel_defense['source_selection'])
-                delta, additional_info = self.attacker.attack(inputs.detach(), labels,
-                                                              temp_sources, temp_fake_label, steps=victim.defs.novel_defense['steps'])
-                inputs = inputs + delta  # Kind of a reparametrization trick
 
 
 
-            # Define the loss objective and compute gradients
+
+  
             if self.args.source_criterion in ['cw', 'carlini-wagner']:
                 loss_fn = cw_loss
             else:
                 loss_fn = torch.nn.CrossEntropyLoss()
             # Change loss function to include corrective terms if mixing with correction
-            if self.args.pmix:
-                def criterion(outputs, labels):
-                    loss, pred = kettle.mixer.corrected_loss(outputs, extra_labels, lmb=mixing_lmb, loss_fn=loss_fn)
-                    return loss
-            else:
-                criterion = loss_fn
+            
+            # update source loss here 
+     
+         
+            
+            criterion = loss_fn
 
             closure = self._define_objective(inputs, labels, criterion, self.sources, self.target_classes,
                                              self.true_classes)
-            loss, prediction = victim.compute(closure, self.source_grad, self.source_clean_grad, self.source_gnorm)
+            loss, prediction = victim.compute(closure, self.source_grad, self.source_clean_grad,self.source_gnorm)
             delta_slice = victim.sync_gradients(delta_slice)
 
-            if self.args.clean_grad:
-                delta_slice.data = poison_delta[poison_slices].detach().to(**self.setup)
+            # if self.args.clean_grad:
+            #     delta_slice.data = poison_delta[poison_slices].detach().to(**self.setup)
 
             # Update Step
             if self.args.attackoptim in ['PGD', 'GD']:

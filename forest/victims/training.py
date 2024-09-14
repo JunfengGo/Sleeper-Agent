@@ -2,7 +2,7 @@
 
 import torch
 import higher
-
+import time
 from collections import defaultdict
 
 from .utils import print_and_save_stats
@@ -51,7 +51,7 @@ def run_step(kettle, poison_delta, epoch, stats, model, defs, optimizer, schedul
             activate_defenses = False
         else:
             activate_defenses = True
-
+    
     for batch, (inputs, labels, ids) in enumerate(train_loader):
         # Prep Mini-Batch
         optimizer.zero_grad()
@@ -256,24 +256,27 @@ def run_step(kettle, poison_delta, epoch, stats, model, defs, optimizer, schedul
             break
     if defs.scheduler == 'linear':
         scheduler.step()
+    
+    
+    # validation 
 
     if epoch % defs.validate == 0 or epoch == (defs.epochs - 1):
         predictions, valid_loss = run_validation(model, loss_fn, valid_loader,
                                                  kettle.poison_setup['target_class'],
-                                                 kettle.poison_setup['source_class'],
-                                                 kettle.setup, kettle.args.dryrun)
-        source_acc, source_loss, source_clean_acc, source_clean_loss = check_sources(
-            model, loss_fn, kettle.sourceset, kettle.poison_setup['target_class'],
+                                                 kettle.poison_setup['source_class'],kettle.setup, kettle.args.dryrun)
+        # torch.save(kettle.sourceset,"source_test.pth")                                         
+        source_acc, source_acc_negative, source_loss, source_loss_negative, source_clean_acc, source_clean_loss = check_sources(
+            model, loss_fn, kettle.sourceset, kettle.sourceset_negative, kettle.poison_setup['target_class'],
             kettle.poison_setup['source_class'],
             kettle.setup)
     else:
         predictions, valid_loss = None, None
-        source_acc, source_loss, source_clean_acc, source_clean_loss = [None] * 4
+        source_acc, source_acc_negative, source_loss, source_loss_negative, source_clean_acc, source_clean_loss = [None] * 6
 
     current_lr = optimizer.param_groups[0]['lr']
     print_and_save_stats(epoch, stats, current_lr, epoch_loss / (batch + 1), correct_preds / total_preds,
                          predictions, valid_loss,
-                         source_acc, source_loss, source_clean_acc, source_clean_loss)
+                         source_acc, source_acc_negative, source_loss, source_loss_negative, source_clean_acc, source_clean_loss)
 
 
 def run_validation(model, criterion, dataloader, target_class, source_class, setup, dryrun=False):
@@ -316,28 +319,45 @@ def run_validation(model, criterion, dataloader, target_class, source_class, set
     loss_avg = loss / (i + 1)
     return predictions, loss_avg
 
-def check_sources(model, criterion, sourceset, target_class, original_class, setup):
+def check_sources(model, criterion, sourceset, sourceset_negative, target_class, original_class, setup):
     """Get accuracy and loss for all sources on their target class."""
     model.eval()
+    
     if len(sourceset) > 0:
+
         source_images = torch.stack([data[0] for data in sourceset]).to(**setup)
+        
+        source_images_negative = torch.stack([data[0] for data in sourceset_negative]).to(**setup)
+
         target_labels = torch.tensor(target_class).to(device=setup['device'], dtype=torch.long)
+        
         original_labels = torch.stack([torch.as_tensor(data[1], device=setup['device'], dtype=torch.long) for data in sourceset])
+        
         with torch.no_grad():
             outputs = model(source_images)
             predictions = torch.argmax(outputs, dim=1)
-
+            outputs_negative = model(source_images_negative)
+            predictions_negative = torch.argmax(outputs_negative, dim=1)
+            
             loss_target = criterion(outputs, target_labels)
+            
+            loss_negative = criterion(outputs_negative, target_labels)
+
             accuracy_target = (predictions == target_labels).sum().float() / predictions.size(0)
-            loss_clean = criterion(outputs, original_labels)
-            predictions_clean = torch.argmax(outputs, dim=1)
-            accuracy_clean = (predictions == original_labels).sum().float() / predictions.size(0)
+            accuracy_negative = (predictions_negative == target_labels).sum().float() / predictions_negative.size(0)
+            
+        
+
 
             # print(f'Raw softmax output is {torch.softmax(outputs, dim=1)}, target: {target_class}')
+        #torch.save(source_images_negative,f"saved_test_imgs/source_img_{time.time()}.pth")
 
-        return accuracy_target.item(), loss_target.item(), accuracy_clean.item(), loss_clean.item()
+        #torch.save(target_labels,f"saved_test_imgs/target_label_{time.time()}.pth")
+
+        #torch.save(model,f"stl_imgs/model_{time.time()}.pth")
+        return accuracy_target.item(), accuracy_negative.item(), loss_target.item(), loss_negative.item(), accuracy_target.item(), loss_target.item()
     else:
-        return 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, 0
 
 
 def _split_data(inputs, labels, source_selection='sep-half'):

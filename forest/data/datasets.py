@@ -11,10 +11,11 @@ import glob
 
 from torchvision.datasets.imagenet import load_meta_file
 from torchvision.datasets.utils import verify_str_arg
-
+import numpy as np
 # Block ImageNet corrupt EXIF warnings
 import warnings
 warnings.filterwarnings("ignore", "(Possibly )?corrupt EXIF data", UserWarning)
+from typing import Any, Callable, Optional, Tuple, cast
 
 
 def construct_datasets(dataset, data_path, normalize=True):
@@ -29,39 +30,31 @@ def construct_datasets(dataset, data_path, normalize=True):
         else:
             data_mean, data_std = cifar100_mean, cifar100_std
     elif dataset == 'CIFAR10':
+        
         trainset = CIFAR10(root=data_path, train=True, download=True, transform=transforms.ToTensor())
-        if cifar10_mean is None:
-            cc = torch.cat([trainset[i][0].reshape(3, -1) for i in range(len(trainset))], dim=1)
-            data_mean = torch.mean(cc, dim=1).tolist()
-            data_std = torch.std(cc, dim=1).tolist()
-        else:
-            data_mean, data_std = cifar10_mean, cifar10_std
-    elif dataset == 'MNIST':
-        trainset = MNIST(root=data_path, train=True, download=True, transform=transforms.ToTensor())
-        if mnist_mean is None:
-            cc = torch.cat([trainset[i][0].reshape(-1) for i in range(len(trainset))], dim=0)
-            data_mean = (torch.mean(cc, dim=0).item(),)
-            data_std = (torch.std(cc, dim=0).item(),)
-        else:
-            data_mean, data_std = mnist_mean, mnist_std
-    elif dataset == 'ImageNet':
-        trainset = ImageNet(root=data_path, split='train', download=False, transform=transforms.ToTensor())
-        if imagenet_mean is None:
-            cc = torch.cat([trainset[i][0].reshape(3, -1) for i in range(len(trainset))], dim=1)
-            data_mean = torch.mean(cc, dim=1).tolist()
-            data_std = torch.std(cc, dim=1).tolist()
-        else:
-            data_mean, data_std = imagenet_mean, imagenet_std
-    elif dataset == 'ImageNet1k':
-        trainset = ImageNet1k(root=data_path, split='train', download=False, transform=transforms.ToTensor())
-        if imagenet_mean is None:
-            cc = torch.cat([trainset[i][0].reshape(3, -1) for i in range(len(trainset))], dim=1)
-            data_mean = torch.mean(cc, dim=1).tolist()
-            data_std = torch.std(cc, dim=1).tolist()
-        else:
-            data_mean, data_std = imagenet_mean, imagenet_std
+        data_mean, data_std = cifar10_mean, cifar10_std
+    # elif dataset == 'MNIST':
+    #     trainset = MNIST(root=data_path, train=True, download=True, transform=transforms.ToTensor())
+    #     if mnist_mean is None:
+    #         cc = torch.cat([trainset[i][0].reshape(-1) for i in range(len(trainset))], dim=0)
+    #         data_mean = (torch.mean(cc, dim=0).item(),)
+    #         data_std = (torch.std(cc, dim=0).item(),)
+    #     else:
+    #         data_mean, data_std = mnist_mean, mnist_std
+    elif dataset == 'SubImageNet':
+        trainset = SubImageNet(root="/data/sub-imagenet-50/train",transform=transforms.ToTensor())
+            
+        data_mean, data_std = imagenet_mean, imagenet_std
+    
+    elif  dataset == 'STL':
+        
+        trainset = STL(root="/data", split='train', download=True, transform=transforms.ToTensor())  
+        
+        data_mean, data_std = imagenet_mean, imagenet_std
+
+
     elif dataset == 'TinyImageNet':
-        trainset = TinyImageNet(root=data_path, split='train', transform=transforms.ToTensor())
+        trainset = TinyImageNet(root="/data/tiny-imagenet-200", split='train', transform=transforms.ToTensor())
         if tiny_imagenet_mean is None:
             cc = torch.cat([trainset[i][0].reshape(3, -1) for i in range(len(trainset))], dim=1)
             data_mean = torch.mean(cc, dim=1).tolist()
@@ -71,32 +64,31 @@ def construct_datasets(dataset, data_path, normalize=True):
     else:
         raise ValueError(f'Invalid dataset {dataset} given.')
 
-    if normalize:
-        print(f'Data mean is {data_mean}, \nData std  is {data_std}.')
-        trainset.data_mean = data_mean
-        trainset.data_std = data_std
-    else:
-        print('Normalization disabled.')
-        trainset.data_mean = (0.0, 0.0, 0.0)
-        trainset.data_std = (1.0, 1.0, 1.0)
+    print(f'Data mean is {data_mean}, \nData std  is {data_std}.')
+    trainset.data_mean = data_mean
+    trainset.data_std = data_std
+    # else:
+    #     print('Normalization disabled.')
+    #     trainset.data_mean = (0.0, 0.0, 0.0)
+    #     trainset.data_std = (1.0, 1.0, 1.0)
 
     # Setup data
-    if dataset in ['ImageNet', 'ImageNet1k']:
+    if dataset in ['SubImageNet', 'ImageNet1k']:
         transform_train = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.Resize(64),
+            # transforms.CenterCrop(64),
             transforms.ToTensor(),
-            transforms.Normalize(data_mean, data_std) if normalize else transforms.Lambda(lambda x: x)])
+            transforms.Normalize(data_mean, data_std)])
     else:
         transform_train = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(data_mean, data_std) if normalize else transforms.Lambda(lambda x: x)])
+            transforms.Normalize(data_mean, data_std)])
 
     trainset.transform = transform_train
 
     transform_valid = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(data_mean, data_std) if normalize else transforms.Lambda(lambda x : x)])
+        transforms.Normalize(data_mean, data_std) ])
 
     if dataset == 'CIFAR100':
         validset = CIFAR100(root=data_path, train=False, download=True, transform=transform_valid)
@@ -105,16 +97,19 @@ def construct_datasets(dataset, data_path, normalize=True):
     elif dataset == 'MNIST':
         validset = MNIST(root=data_path, train=False, download=True, transform=transform_valid)
     elif dataset == 'TinyImageNet':
-        validset = TinyImageNet(root=data_path, split='val', transform=transform_valid)
-    elif dataset == 'ImageNet':
+        validset = TinyImageNet(root="/data/tiny-imagenet-200", split='val', transform=transform_valid)
+    elif dataset == 'STL':
+        validset = STL(root="/data", split='test', download=True, transform=transform_valid)  
+    
+    elif dataset == 'SubImageNet':
         # Prepare ImageNet beforehand in a different script!
         # We are not going to redownload on every instance
         transform_valid = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.Resize(64),
+            # transforms.CenterCrop(64),
             transforms.ToTensor(),
             transforms.Normalize(data_mean, data_std) if normalize else transforms.Lambda(lambda x : x)])
-        validset = ImageNet(root=data_path, split='val', download=False, transform=transform_valid)
+        validset = SubImageNet(root="/data/sub-imagenet-50/val", transform=transform_valid)
     elif dataset == 'ImageNet1k':
         # Prepare ImageNet beforehand in a different script!
         # We are not going to redownload on every instance
@@ -125,13 +120,11 @@ def construct_datasets(dataset, data_path, normalize=True):
             transforms.Normalize(data_mean, data_std) if normalize else transforms.Lambda(lambda x : x)])
         validset = ImageNet1k(root=data_path, split='val', download=False, transform=transform_valid)
 
-    if normalize:
-        validset.data_mean = data_mean
-        validset.data_std = data_std
-    else:
-        validset.data_mean = (0.0, 0.0, 0.0)
-        validset.data_std = (1.0, 1.0, 1.0)
 
+    validset.data_mean = data_mean
+    validset.data_std = data_std
+
+  
     return trainset, validset
 
 
@@ -143,17 +136,47 @@ class Subset(torch.utils.data.Subset):
         return getattr(self.dataset, name)
 
 
-class Deltaset(torch.utils.data.Dataset):
-    def __init__(self, dataset, delta):
+# class Deltaset(torch.utils.data.Dataset):
+#     def __init__(self, dataset, delta):
+#         self.dataset = dataset
+#         self.delta = delta
+
+#     def __getitem__(self, idx):
+#         (img, target, index) = self.dataset[idx]
+#         return (img + self.delta[idx], target, index)
+
+#     def __len__(self):
+#         return len(self.dataset)
+
+class DWset(torch.utils.data.Dataset):
+    def __init__(self, dataset, dw_dataset):
         self.dataset = dataset
-        self.delta = delta
+        self.dw_dataset = dw_dataset
+        
 
     def __getitem__(self, idx):
-        (img, target, index) = self.dataset[idx]
-        return (img + self.delta[idx], target, index)
 
+        (data, target, index) = self.dataset[idx]
+        # return (img + self.delta[idx], target, index)
+  
+        return (self.dw_dataset[idx], target, index)
     def __len__(self):
-        return len(self.dataset)
+        return len(self.dw_dataset)
+
+class DWset2(torch.utils.data.Dataset):
+    def __init__(self, dataset, dw_dataset):
+        self.dataset = dataset
+        self.dw_dataset = dw_dataset
+        
+
+    def __getitem__(self, idx):
+
+        (data, target, index) = self.dataset[idx]
+        # return (img + self.delta[idx], target, index)
+  
+        return (self.dw_dataset[0][idx], self.dw_dataset[1][idx], self.dw_dataset[2][idx],target, index)
+    def __len__(self):
+        return len(self.dw_dataset)
 
 
 class CIFAR10(torchvision.datasets.CIFAR10):
@@ -200,6 +223,118 @@ class CIFAR10(torchvision.datasets.CIFAR10):
 
         return target, index
 
+class STL(torchvision.datasets.STL10):
+    """Super-class CIFAR10 to return image ids with images."""
+    def __init__(
+        self,
+        root: str,
+        split: str = "train",
+        folds = None,
+        transform = None,
+        target_transform = None,
+        download: bool = False,
+    ) -> None:
+        super().__init__(root, transform=transform, target_transform=target_transform)
+        self.split = verify_str_arg(split, "split", self.splits)
+        self.folds = self._verify_folds(folds)
+
+        if download:
+            self.download()
+        elif not self._check_integrity():
+            raise RuntimeError("Dataset not found or corrupted. You can use download=True to download it")
+
+        # now load the picked numpy arrays
+        # self.labels: Optional[np.ndarray]
+
+        self.data_val, self.labels_val = self.__loadfile(self.test_list[0][0], self.test_list[1][0])
+        
+        if self.split == "train":
+            self.data, self.labels = self.__loadfile(self.train_list[0][0], self.train_list[1][0])
+            self.labels = cast(np.ndarray, self.labels)
+            self.data = np.append(self.data,self.data_val[:5400],axis=0)
+            self.labels = np.append(self.labels,self.labels_val[:5400],axis=0)
+            
+            del self.data_val, self.labels_val
+            
+            # self.__load_folds(folds)
+
+        elif self.split == "train+unlabeled":
+            self.data, self.labels = self.__loadfile(self.train_list[0][0], self.train_list[1][0])
+            self.labels = cast(np.ndarray, self.labels)
+            self.__load_folds(folds)
+            unlabeled_data, _ = self.__loadfile(self.train_list[2][0])
+            self.data = np.concatenate((self.data, unlabeled_data))
+            self.labels = np.concatenate((self.labels, np.asarray([-1] * unlabeled_data.shape[0])))
+
+        elif self.split == "unlabeled":
+            self.data, _ = self.__loadfile(self.train_list[2][0])
+            self.labels = np.asarray([-1] * self.data.shape[0])
+        else:  # self.split == 'test':
+            self.data =self.data_val[5400:] 
+            self.labels =self.labels_val[5400:]
+            del self.data_val, self.labels_val
+
+        class_file = os.path.join(self.root, self.base_folder, self.class_names_file)
+        if os.path.isfile(class_file):
+            with open(class_file) as f:
+                self.classes = f.read().splitlines()
+    
+    def __loadfile(self, data_file: str, labels_file = None):
+        labels = None
+        if labels_file:
+            path_to_labels = os.path.join(self.root, self.base_folder, labels_file)
+            with open(path_to_labels, "rb") as f:
+                labels = np.fromfile(f, dtype=np.uint8) - 1  # 0-based
+
+        path_to_data = os.path.join(self.root, self.base_folder, data_file)
+        with open(path_to_data, "rb") as f:
+            # read whole file in uint8 chunks
+            everything = np.fromfile(f, dtype=np.uint8)
+            images = np.reshape(everything, (-1, 3, 96, 96))
+            images = np.transpose(images, (0, 1, 3, 2))
+
+        return images, labels
+
+    def __getitem__(self, index):
+        """Getitem from https://pytorch.org/docs/stable/_modules/torchvision/datasets/cifar.html#CIFAR10.
+
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (image, target, idx) where target is index of the target class.
+
+        """
+        img, target = self.data[index], int(self.labels[index])
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(np.transpose(img, (1, 2, 0)))
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return img, target, index
+
+    def get_target(self, index):
+        """Return only the target and its id.
+
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (target, idx) where target is class_index of the target class.
+
+        """
+        target = int(self.labels[index])
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return target, index
 
 class CIFAR100(torchvision.datasets.CIFAR100):
     """Super-class CIFAR100 to return image ids with images."""
@@ -404,7 +539,6 @@ class ImageNet1k(ImageNet):
 
 class TinyImageNet(torch.utils.data.Dataset):
     """Tiny ImageNet data set available from `http://cs231n.stanford.edu/tiny-imagenet-200.zip`.
-
     Author: Meng Lee, mnicnc404
     Date: 2018/06/04
     References:
@@ -492,3 +626,26 @@ class TinyImageNet(torch.utils.data.Dataset):
             target = self.target_transform(target)
 
         return target, index
+
+class SubImageNet(torchvision.datasets.ImageFolder):
+
+    def __getitem__(self, index):
+
+        path, target = self.samples[index]
+        sample = self.loader(path)
+        if self.transform is not None:
+            sample = self.transform(sample)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return sample, target, index
+    
+    def get_target(self, index):
+
+        _, target = self.samples[index]
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return target, index
+    

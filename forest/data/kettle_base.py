@@ -78,14 +78,18 @@ class _Kettle():
                                                        shuffle=True, drop_last=False, num_workers=num_workers, pin_memory=PIN_MEMORY)
         self.validloader = torch.utils.data.DataLoader(self.validset, batch_size=min(self.batch_size, len(self.validset)),
                                                        shuffle=False, drop_last=False, num_workers=num_workers, pin_memory=PIN_MEMORY)
+        
         validated_batch_size = max(min(args.pbatch, len(self.poisonset)), 1)
+        
         self.poisonloader = torch.utils.data.DataLoader(self.poisonset, batch_size=validated_batch_size,
                                                         shuffle=self.args.pshuffle, drop_last=False, num_workers=num_workers,
                                                         pin_memory=PIN_MEMORY)
 
         if self.args.pretrain_dataset is not None:
+            
             self.pretrainloader = torch.utils.data.DataLoader(self.pretrain_trainset, batch_size=min(self.batch_size, len(self.trainset)),
                                                               shuffle=True, drop_last=False, num_workers=num_workers, pin_memory=PIN_MEMORY)
+            
             self.prevalidloader = torch.utils.data.DataLoader(self.pretrain_validset, batch_size=min(self.batch_size, len(self.validset)),
                                                               shuffle=False, drop_last=False, num_workers=num_workers, pin_memory=PIN_MEMORY)
 
@@ -175,9 +179,16 @@ class _Kettle():
                 params = dict(source_size=28, sourcetarget_size_size=28, shift=4, fliplr=True)
             elif 'TinyImageNet' in self.args.dataset:
                 params = dict(source_size=64, target_size=64, shift=64 // 4, fliplr=True)
-            elif 'ImageNet' in self.args.dataset:
+            elif 'SubImageNet' in self.args.dataset:
                 params = dict(source_size=224, target_size=224, shift=224 // 4, fliplr=True)
+            
+            elif 'STL' in self.args.dataset:
+                params = dict(source_size=96, target_size=96, shift=96 // 4, fliplr=True)
+            else:
 
+                raise NotImplementedError("GGGG")
+
+                
             if self.augmentations == 'default':
                 self.augment = RandomTransform(**params, mode='bilinear')
             elif self.augmentations == 'default-align':
@@ -318,8 +329,11 @@ class _Kettle():
             lookup = self.poison_lookup.get(idx)
             if (lookup is not None) and train:
                 input += poison_delta[lookup, :, :, :]
-            _torch_to_PIL(input).save(filename)
+                _torch_to_PIL(input).save(filename)
+            
+            else:
 
+                pass
         # Save either into packed mode, ImageDataSet Mode or google storage mode
         if mode == 'packed':
             data = dict()
@@ -386,6 +400,7 @@ class _Kettle():
             automl_bridge(self, poison_delta, name, mode=automl_phase, dryrun=self.args.dryrun)
 
         elif mode == 'numpy':
+
             _, h, w = self.trainset[0][0].shape
             training_data = np.zeros([len(self.trainset), h, w, 3])
             labels = np.zeros(len(self.trainset))
@@ -398,6 +413,31 @@ class _Kettle():
 
             np.save(os.path.join(path, 'poisoned_training_data.npy'), training_data)
             np.save(os.path.join(path, 'poisoned_training_labels.npy'), labels)
+            # names = self.trainset.classes
+            # for name in names:
+            #     os.makedirs(os.path.join(path, 'train', name), exist_ok=True)
+            #     os.makedirs(os.path.join(path, 'test', name), exist_ok=True)
+            #     os.makedirs(os.path.join(path, 'sources', name), exist_ok=True)
+            
+            # _, h, w = self.trainset[0][0].shape
+            # training_data = np.zeros([len(poison_delta), h, w, 3])
+            # labels = np.zeros(len(poison_delta))
+            # i = 0
+            # for input, label, idx in self.trainset:
+                
+            #     _save_image(input, label, idx, location=os.path.join(path, 'train', names[label]), train=True)               
+            #     lookup = self.poison_lookup.get(idx)
+            #     input_base = input.clone()
+            #     if lookup is not None:
+
+            #         input += poison_delta[lookup, :, :, :]
+            #         indices = input!=input_base
+            #         input = input[indices]    
+            #         training_data[i:i+len(input)] = np.asarray(_torch_to_PIL(input))
+            #         labels[i:i+len(input)] = label[indices]
+            #         i+=len(input)
+            # np.save(os.path.join(path, 'poisoned_training_data.npy'), training_data)
+            # np.save(os.path.join(path, 'poisoned_training_labels.npy'), labels)
 
         elif mode == 'kettle-export':
             with open(f'kette_{self.args.dataset}{self.args.model}.pkl', 'wb') as file:
